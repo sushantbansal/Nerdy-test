@@ -1,64 +1,91 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+
 import '../../core/theme/app_colors.dart';
-import '../auth/auth_controller.dart';
+import '../../core/widgets/widgets.dart';
+import 'splash_controller.dart';
 
-class SplashView extends StatefulWidget {
+class SplashView extends GetView<SplashController> {
   const SplashView({super.key});
-
-  @override
-  State<SplashView> createState() => _SplashViewState();
-}
-
-class _SplashViewState extends State<SplashView> {
-  @override
-  void initState() {
-    super.initState();
-    _navigateAfterDelay();
-  }
-
-  Future<void> _navigateAfterDelay() async {
-    await Future.delayed(const Duration(milliseconds: 1500));
-    if (!mounted) return;
-    final controller = Get.find<AuthController>();
-    // Re-sync auth state from the current Supabase session.
-    // Fixes web hot restart where the old stream subscription is stale.
-    controller.refreshAuthState();
-    controller.checkSessionAndNavigate();
-  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.primary,
-      body: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.brush_rounded,
-              size: 80,
-              color: Colors.white.withValues(alpha: 0.9),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              'SketchRush',
-              style: Theme.of(context).textTheme.headlineLarge?.copyWith(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 1.5,
+      body: CandyBackground(
+        style: CandyBackgroundStyle.hero,
+        child: SafeArea(
+          child: Center(
+            child: AnimatedBuilder(
+              animation: controller.animation,
+              builder: (context, child) {
+                return Opacity(
+                  opacity: controller.fade.value,
+                  child: Transform.scale(
+                    scale: controller.pop.value,
+                    child: child,
                   ),
-            ),
-            const SizedBox(height: 32),
-            const SizedBox(
-              width: 32,
-              height: 32,
-              child: CircularProgressIndicator(
-                color: Colors.white,
-                strokeWidth: 3,
+                );
+              },
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 112,
+                    height: 112,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: AppColors.heroGradient,
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(34),
+                      border: Border.all(color: Colors.white, width: 4),
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppColors.primaryDark.withValues(alpha: 0.35),
+                          offset: const Offset(0, 8),
+                          blurRadius: 0,
+                        ),
+                      ],
+                    ),
+                    alignment: Alignment.center,
+                    child: const Text(
+                      '⚡',
+                      style: TextStyle(fontSize: 54, height: 1),
+                    ),
+                  ),
+                  const SizedBox(height: 22),
+                  Text(
+                    'MathClash',
+                    style: Theme.of(context).textTheme.displaySmall?.copyWith(
+                      fontSize: 40,
+                      letterSpacing: -0.5,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Play smart. Clash kindly.',
+                    style: Theme.of(
+                      context,
+                    ).textTheme.bodyMedium?.copyWith(color: AppColors.inkSoft),
+                  ),
+                  const SizedBox(height: 44),
+                  Obx(
+                    () => Text(
+                      controller.status.value,
+                      style: Theme.of(context).textTheme.labelSmall,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  const SizedBox(
+                    width: 26,
+                    height: 26,
+                    child: CircularProgressIndicator(strokeWidth: 3),
+                  ),
+                ],
               ),
             ),
-          ],
+          ),
         ),
       ),
     );

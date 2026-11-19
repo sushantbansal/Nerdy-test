@@ -28,9 +28,24 @@ Players join rooms, take turns drawing a secret word on a shared canvas, and rac
 ### Prerequisites
 
 - Flutter SDK (3.x+)
-- A Supabase project with Realtime enabled
+- Docker Desktop + [Supabase CLI](https://supabase.com/docs/guides/cli) (local backend), **or** a hosted Supabase project
 
-### Setup
+### Local setup (Supabase via Docker)
+
+See **[LOCAL_SETUP.md](LOCAL_SETUP.md)** for the full guide. Short version:
+
+```bash
+# Backend (Docker)
+supabase start
+
+# App (defaults to http://127.0.0.1:54321)
+flutter pub get
+flutter run -d chrome
+```
+
+Studio: http://127.0.0.1:54323
+
+### Setup (hosted Supabase)
 
 1. Clone the repository:
    ```bash
@@ -43,12 +58,14 @@ Players join rooms, take turns drawing a secret word on a shared canvas, and rac
    flutter pub get
    ```
 
-3. Configure your Supabase credentials (URL and anon key) in the project.
-
-4. Run the app:
+3. Pass your project URL and anon key:
    ```bash
-   flutter run
+   flutter run \
+     --dart-define=SUPABASE_URL=https://YOUR_PROJECT.supabase.co \
+     --dart-define=SUPABASE_ANON_KEY=YOUR_ANON_KEY
    ```
+
+4. Apply SQL in `supabase/migrations/` and deploy `supabase/functions/game-engine` to that project.
 
 ## How to Play
 

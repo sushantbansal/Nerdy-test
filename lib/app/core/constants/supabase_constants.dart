@@ -1,36 +1,20 @@
 class SupabaseConstants {
   SupabaseConstants._();
 
+  // Local Supabase defaults. Override for hosted deployments with:
+  //   flutter run --dart-define=SUPABASE_URL=... \
+  //               --dart-define=SUPABASE_ANON_KEY=...
   static const String supabaseUrl = String.fromEnvironment(
     'SUPABASE_URL',
-    defaultValue: 'https://swumprctmlvhmfrcgghw.supabase.co',
+    defaultValue: 'http://127.0.0.1:54321',
   );
 
   static const String supabaseAnonKey = String.fromEnvironment(
     'SUPABASE_ANON_KEY',
-    defaultValue: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN3dW1wcmN0bWx2aG1mcmNnZ2h3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE4NTQ3MDIsImV4cCI6MjA4NzQzMDcwMn0.vneibFbb9AvNd19lDT7-GL7-0Z_ExXMB4BGFtqIusT8',
+    defaultValue:
+        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0',
   );
 
-  // Realtime channel prefixes
-  static String roomChannel(String roomId) => 'room:$roomId';
-  static String gameChannel(String roomId) => 'game:$roomId';
-
-  // Broadcast event names
-  static const String eventStrokeData = 'stroke_data';
-  static const String eventStrokeUndo = 'stroke_undo';
-  static const String eventStrokeClear = 'stroke_clear';
-  static const String eventCanvasRequest = 'canvas_request';
-  static const String eventCanvasSnapshot = 'canvas_snapshot';
-  static const String eventTurnStart = 'turn_start';
-  static const String eventWordSelected = 'word_selected';
-  static const String eventHintUpdate = 'hint_update';
-  static const String eventCorrectGuess = 'correct_guess';
-  static const String eventCloseGuess = 'close_guess';
-  static const String eventWrongGuess = 'wrong_guess';
-  static const String eventTurnEnd = 'turn_end';
-  static const String eventRoundEnd = 'round_end';
-  static const String eventGameOver = 'game_over';
-  static const String eventGameReset = 'game_reset';
-  static const String eventChatMessage = 'chat_message';
-  static const String eventTimeSync = 'time_sync';
+  // Only non-secret room/match tables are streamed. Answer keys stay sealed.
+  static String roomChannel(String roomId) => 'math-room:$roomId';
 }

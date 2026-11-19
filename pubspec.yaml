@@ -1,5 +1,5 @@
 name: sketch_rush
-description: "A real-time multiplayer drawing and guessing game."
+description: "MathClash — a safe, real-time multiplayer K-5 math game."
 publish_to: 'none'
 
 version: 1.0.0+1
@@ -19,17 +19,13 @@ dependencies:
   # State Management
   get: ^4.7.3
 
-  # Drawing
-  perfect_freehand: ^2.5.2+1
-  flutter_colorpicker: ^1.1.0
-
   # Utilities
   uuid: ^4.5.1
-  shared_preferences: ^2.3.4
 
   # UI
   google_fonts: ^6.2.1
-  flutter_animate: ^4.5.2
+  flutter_tts: ^4.2.5
+  shared_preferences: ^2.5.5
 
 dev_dependencies:
   flutter_test:

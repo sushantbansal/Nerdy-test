@@ -1,330 +1,225 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
+
+import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../../core/constants/app_constants.dart';
-import '../../data/providers/auth_provider.dart';
+import '../../core/utils/ui_feedback.dart';
+import '../../domain/models/math_models.dart';
 import '../../routes/app_routes.dart';
+import '../../services/narration_service.dart';
+import '../../services/session_service.dart';
+
+enum AuthMode { signIn, signUp, upgrade }
 
 class AuthController extends GetxController {
-  final AuthProvider _authProvider = Get.find<AuthProvider>();
+  AuthController(this._session);
 
-  final Rx<User?> currentUser = Rx<User?>(null);
-  final RxString displayName = ''.obs;
+  final SessionService _session;
+
+  final emailController = TextEditingController();
+  final passwordController = TextEditingController();
+  final nameController = TextEditingController();
+
+  final Rx<AuthMode> mode = AuthMode.signIn.obs;
+  final RxBool submitting = RxBool(false);
+  final RxBool obscurePassword = RxBool(true);
+  final RxString error = RxString('');
+
+  final Rx<GradeLevel> grade = GradeLevel.grade1.obs;
   final RxInt avatarIndex = 0.obs;
-  final RxString avatarColor = '#6C5CE7'.obs;
-  final RxBool isLoading = false.obs;
-  final RxBool isAuthenticated = false.obs;
+  final RxString avatarColor = AppConstants.avatarColors.first.obs;
 
-  StreamSubscription<AuthState>? _authSub;
-
-  String? get userId => currentUser.value?.id;
+  bool get isGuestUpgrade => _session.isSignedIn.value && _session.isGuest;
 
   @override
   void onInit() {
     super.onInit();
-    _listenAuthState();
-    _restorePreferences();
-  }
-
-  void _listenAuthState() {
-    // Set initial state synchronously from current session
-    currentUser.value = _authProvider.currentUser;
-    isAuthenticated.value = _authProvider.isAuthenticated;
-    _subscribeAuth();
-  }
-
-  void _subscribeAuth() {
-    _authSub?.cancel();
-    _authSub = _authProvider.authStateChanges.listen((authState) {
-      currentUser.value = authState.session?.user;
-      isAuthenticated.value = authState.session?.user != null;
-    }, onError: (error) {
-      debugPrint('Auth state stream error: $error');
-    });
-  }
-
-  /// Re-sync auth state from the current Supabase session.
-  /// Called on hot restart via splash to handle stale stream subscriptions
-  /// (web hot restart creates a new Supabase client, invalidating old streams).
-  void refreshAuthState() {
-    currentUser.value = _authProvider.currentUser;
-    isAuthenticated.value = _authProvider.isAuthenticated;
-    _subscribeAuth();
+    final arguments = Get.arguments;
+    if (_session.isSignedIn.value && _session.isGuest) {
+      mode.value = AuthMode.upgrade;
+    } else if (arguments is Map && arguments['mode'] == 'sign_up') {
+      mode.value = AuthMode.signUp;
+    } else if (arguments is Map && arguments['mode'] == 'upgrade') {
+      mode.value = AuthMode.upgrade;
+    }
+    final profile = _session.profile.value;
+    if (profile != null) {
+      nameController.text = profile.displayName;
+      grade.value = profile.grade;
+      avatarIndex.value = profile.avatarIndex;
+      avatarColor.value = profile.avatarColor;
+    }
   }
 
   @override
   void onClose() {
-    _authSub?.cancel();
+    emailController.dispose();
+    passwordController.dispose();
+    nameController.dispose();
     super.onClose();
   }
 
-  Future<void> _restorePreferences() async {
-    final prefs = await SharedPreferences.getInstance();
-    displayName.value = prefs.getString(AppConstants.keyDisplayName) ?? '';
-    avatarIndex.value = prefs.getInt(AppConstants.keyAvatarIndex) ?? 0;
-    avatarColor.value =
-        prefs.getString(AppConstants.keyAvatarColor) ?? '#6C5CE7';
+  void switchMode(AuthMode next) {
+    if (mode.value == AuthMode.upgrade) return;
+    error.value = '';
+    mode.value = next;
   }
 
-  Future<void> _savePreferences() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(AppConstants.keyDisplayName, displayName.value);
-    await prefs.setInt(AppConstants.keyAvatarIndex, avatarIndex.value);
-    await prefs.setString(AppConstants.keyAvatarColor, avatarColor.value);
+  void clearError() {
+    if (error.value.isNotEmpty) error.value = '';
   }
 
-  // --- Input Validation ---
+  void selectAvatar(int index, String color) {
+    avatarIndex.value = index;
+    avatarColor.value = color;
+  }
 
-  /// Returns null if valid, or an error message string.
-  String? validateEmail(String? email) {
-    if (email == null || email.trim().isEmpty) {
-      return 'Email is required';
-    }
-    if (!GetUtils.isEmail(email.trim())) {
-      return 'Enter a valid email address';
-    }
+  String? validateEmail(String? value) {
+    final email = (value ?? '').trim();
+    if (email.isEmpty) return 'Enter your email address.';
+    final pattern = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+    if (!pattern.hasMatch(email)) return 'That email does not look right.';
     return null;
   }
 
-  String? validatePassword(String? password) {
-    if (password == null || password.isEmpty) {
-      return 'Password is required';
-    }
-    if (password.length < 6) {
-      return 'Password must be at least 6 characters';
-    }
+  String? validatePassword(String? value) {
+    final password = value ?? '';
+    if (password.isEmpty) return 'Enter a password.';
+    if (password.length < 8) return 'Use at least 8 characters.';
     return null;
   }
 
-  String? validateConfirmPassword(String? password, String? confirm) {
-    if (confirm == null || confirm.isEmpty) {
-      return 'Please confirm your password';
-    }
-    if (confirm != password) {
-      return 'Passwords do not match';
-    }
-    return null;
-  }
+  Future<void> submit() async {
+    if (submitting.value) return;
+    error.value = '';
 
-  String? validateDisplayName(String? name) {
-    if (name == null || name.trim().isEmpty) {
-      return 'Display name is required';
+    final emailError = validateEmail(emailController.text);
+    if (emailError != null) {
+      error.value = emailError;
+      return;
     }
-    if (name.trim().length < 2) {
-      return 'Name must be at least 2 characters';
+    final passwordError = validatePassword(passwordController.text);
+    if (passwordError != null) {
+      error.value = passwordError;
+      return;
     }
-    if (name.trim().length > 20) {
-      return 'Name must be 20 characters or less';
-    }
-    return null;
-  }
 
-  // --- Anonymous Sign In ---
+    final name = nameController.text.trim();
+    if (mode.value == AuthMode.signUp &&
+        (name.length < 2 || name.length > 20)) {
+      error.value = 'Choose a display name between 2 and 20 characters.';
+      return;
+    }
 
-  Future<bool> signInAnonymously({
-    required String name,
-    int? avatar,
-    String? color,
-  }) async {
+    submitting.value = true;
     try {
-      isLoading.value = true;
-      displayName.value = name;
-      if (avatar != null) avatarIndex.value = avatar;
-      if (color != null) avatarColor.value = color;
-
-      await _authProvider.signInAnonymously(name);
-      await _savePreferences();
-
-      // Update player profile with avatar info
-      await _authProvider.updatePlayerProfile(
-        displayName: name,
-        avatarIndex: avatarIndex.value,
-        avatarColor: avatarColor.value,
-      );
-
-      return true;
-    } catch (e) {
-      Get.snackbar('Error', 'Failed to sign in: ${e.toString()}');
-      return false;
+      switch (mode.value) {
+        case AuthMode.signIn:
+          await _session.signInWithEmail(
+            email: emailController.text,
+            password: passwordController.text,
+          );
+          UiFeedback.success('Welcome back!');
+        case AuthMode.signUp:
+          final outcome = await _session.signUpWithEmail(
+            email: emailController.text,
+            password: passwordController.text,
+            displayName: name,
+            grade: grade.value,
+            avatarIndex: avatarIndex.value,
+            avatarColor: avatarColor.value,
+          );
+          if (!outcome.signedIn) {
+            error.value =
+                outcome.message ??
+                'Check your email to confirm your account, then sign in.';
+            mode.value = AuthMode.signIn;
+            return;
+          }
+          UiFeedback.success('Account created. Your progress is saved!');
+        case AuthMode.upgrade:
+          await _session.upgradeGuestAccount(
+            email: emailController.text,
+            password: passwordController.text,
+          );
+          UiFeedback.success('Progress saved! You can sign in anywhere now.');
+      }
+      Get.offAllNamed(AppRoutes.home);
+    } catch (exception) {
+      final message = UiFeedback.friendly(exception);
+      error.value = message;
+      UiFeedback.error(message);
     } finally {
-      isLoading.value = false;
+      submitting.value = false;
     }
   }
 
-  // --- Email/Password Sign Up ---
-
-  Future<bool> signUpWithEmail({
-    required String email,
-    required String password,
-    required String name,
-    int? avatar,
-    String? color,
-  }) async {
+  Future<void> sendResetEmail() async {
+    final emailError = validateEmail(emailController.text);
+    if (emailError != null) {
+      error.value = emailError;
+      return;
+    }
     try {
-      isLoading.value = true;
-      displayName.value = name;
-      if (avatar != null) avatarIndex.value = avatar;
-      if (color != null) avatarColor.value = color;
-
-      final response = await _authProvider.signUpWithEmail(
-        email: email.trim(),
-        password: password,
-        displayName: name,
-      );
-
-      if (response.user == null) {
-        Get.snackbar('Error', 'Sign up failed. Please try again.');
-        return false;
-      }
-
-      // Check if email confirmation is required
-      if (response.user!.emailConfirmedAt == null) {
-        Get.snackbar(
-          'Verify Email',
-          'Please check your inbox and verify your email before signing in.',
-          duration: const Duration(seconds: 5),
-        );
-        return false;
-      }
-
-      await _savePreferences();
-
-      // Create player profile
-      await _authProvider.ensurePlayerProfile(
-        displayName: name,
-        avatarIndex: avatarIndex.value,
-        avatarColor: avatarColor.value,
-      );
-
-      return true;
-    } on AuthException catch (e) {
-      Get.snackbar('Sign Up Failed', e.message);
-      return false;
-    } catch (e) {
-      Get.snackbar('Error', 'An unexpected error occurred.');
-      return false;
-    } finally {
-      isLoading.value = false;
+      await _session.resetPassword(emailController.text);
+      UiFeedback.info('Password reset email sent. Check your inbox.');
+    } catch (exception) {
+      UiFeedback.error(UiFeedback.friendly(exception));
     }
   }
 
-  // --- Email/Password Sign In ---
-
-  Future<bool> signInWithEmail({
-    required String email,
-    required String password,
-  }) async {
-    try {
-      isLoading.value = true;
-
-      final response = await _authProvider.signInWithEmail(
-        email: email.trim(),
-        password: password,
-      );
-
-      if (response.user == null) {
-        Get.snackbar('Error', 'Sign in failed. Please try again.');
-        return false;
-      }
-
-      // Restore display name from user metadata
-      final metadata = response.user!.userMetadata;
-      final name = metadata?['display_name'] as String? ?? '';
-      if (name.isNotEmpty) {
-        displayName.value = name;
-      } else if (displayName.value.isEmpty) {
-        // Fallback: restore from shared preferences
-        final prefs = await SharedPreferences.getInstance();
-        final savedName = prefs.getString(AppConstants.keyDisplayName) ?? '';
-        if (savedName.isNotEmpty) {
-          displayName.value = savedName;
-        }
-      }
-
-      await _savePreferences();
-
-      // Ensure player profile exists (first login on new device)
-      if (displayName.value.isNotEmpty) {
-        await _authProvider.ensurePlayerProfile(
-          displayName: displayName.value,
-          avatarIndex: avatarIndex.value,
-          avatarColor: avatarColor.value,
-        );
-      }
-
-      return true;
-    } on AuthException catch (e) {
-      Get.snackbar('Sign In Failed', e.message);
-      return false;
-    } catch (e) {
-      Get.snackbar('Error', 'An unexpected error occurred.');
-      return false;
-    } finally {
-      isLoading.value = false;
+  void backToWelcome() {
+    if (Get.currentRoute == AppRoutes.auth) {
+      Get.offAllNamed(AppRoutes.welcome);
     }
   }
 
-  // --- Forgot Password ---
-
-  Future<bool> resetPassword(String email) async {
-    try {
-      isLoading.value = true;
-      await _authProvider.resetPassword(email.trim());
-      return true;
-    } on AuthException catch (e) {
-      Get.snackbar('Error', e.message);
-      return false;
-    } catch (e) {
-      Get.snackbar('Error', 'Failed to send reset email.');
-      return false;
-    } finally {
-      isLoading.value = false;
+  /// Leaves the account screen. Guests who opened it from Settings go back to
+  /// the game freed from the upgrade prompt; new players return to setup.
+  void close() {
+    if (mode.value == AuthMode.upgrade) {
+      Get.offAllNamed(AppRoutes.home);
+      return;
     }
+    backToWelcome();
   }
 
-  // --- Profile Update ---
-
-  Future<void> updateProfile({String? name, int? avatar, String? color}) async {
-    try {
-      if (name != null) displayName.value = name;
-      if (avatar != null) avatarIndex.value = avatar;
-      if (color != null) avatarColor.value = color;
-
-      await _authProvider.updatePlayerProfile(
-        displayName: displayName.value,
-        avatarIndex: avatarIndex.value,
-        avatarColor: avatarColor.value,
-      );
-      await _savePreferences();
-    } catch (e) {
-      Get.snackbar('Error', 'Failed to update profile: ${e.toString()}');
-    }
+  void speakHelp() {
+    if (!Get.isRegistered<NarrationService>()) return;
+    unawaited(
+      Get.find<NarrationService>().speak(
+        'Tap the big play button to start. A grown-up can help with '
+        'the sign-in boxes.',
+      ),
+    );
   }
 
-  // --- Sign Out ---
-
-  Future<void> signOut() async {
-    try {
-      await _authProvider.signOut();
-    } catch (e) {
-      debugPrint('Sign out error: $e');
-    }
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.clear();
-    displayName.value = '';
-    isAuthenticated.value = false;
-    currentUser.value = null;
-    Get.offAllNamed(AppRoutes.auth);
-  }
-
-  /// Check if session is valid and navigate accordingly
-  Future<void> checkSessionAndNavigate() async {
-    if (isAuthenticated.value && displayName.value.isNotEmpty) {
-      Get.offAllNamed(AppRoutes.lobby);
-    } else {
-      Get.offAllNamed(AppRoutes.auth);
-    }
+  void showAccountHelp() {
+    final context = Get.context;
+    if (context == null) return;
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Why create an account?'),
+        content: const SingleChildScrollView(
+          child: Text(
+            'Accounts are optional. A guest profile already saves progress '
+            'on this device.\n\n'
+            'Adding an email keeps your XP, badges and match history when you '
+            'change devices. We never ask for a real name, photo or address, '
+            'and there is no open chat.\n\n'
+            'Please ask a parent or guardian before creating an account for '
+            'a child.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Got it'),
+          ),
+        ],
+      ),
+    );
   }
 }
